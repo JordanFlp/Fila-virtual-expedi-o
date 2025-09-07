@@ -5,15 +5,18 @@ export const GaiolasContext = createContext();
 export function GaiolasProvider({ children }) {
   const [gaiolas, setGaiolas] = useState([]);
   const [bancadas, setBancadas] = useState([]);
+  const [ultimaSolicitacao, setUltimaSolicitacao] = useState(Date.now());
 
+  // === GERAR BANCADAS ===
   const gerarBancadas = (num) => {
     const novos = [];
     for (let i = 1; i <= num; i++) {
-      novos.push({ id: i, status: "livre", fila: [] });
+      novos.push({ id: i, status: "livre", fila: [], historico: [] }); // inicializa historico
     }
     setBancadas(novos);
   };
 
+  // === GERAR GAIOLAS ===
   const gerarGaiolas = (startLetter, endLetter, lastLimit) => {
     const result = [];
     const startCode = startLetter.charCodeAt(0);
@@ -29,7 +32,10 @@ export function GaiolasProvider({ children }) {
     setGaiolas(result);
   };
 
+  // === SOLICITAR ROTA MANUAL ===
   const solicitarRota = (rota, bancadaId = null) => {
+    setUltimaSolicitacao(Date.now());
+
     setGaiolas((prev) =>
       prev.map((g) =>
         g.letter === rota.letter && g.num === rota.num
@@ -42,17 +48,17 @@ export function GaiolasProvider({ children }) {
       setBancadas((prev) =>
         prev.map((b) =>
           b.id === bancadaId
-            ? { ...b, status: "em_conferencia", fila: [...b.fila, rota] }
+            ? { ...b, status: "em_conferencia", fila: [...b.fila, rota], historico: b.historico || [] }
             : b
         )
       );
     }
   };
 
+  // === PROCESSAR FILA ===
   const processarFila = useCallback(() => {
     setBancadas((prevBancadas) => {
-      let novasBancadas = [...prevBancadas];
-
+      let novasBancadas = prevBancadas.map((b) => ({ ...b, fila: [...b.fila], historico: b.historico || [] }));
       const filaGlobal = gaiolas.filter((g) => g.status === "em_fila");
 
       for (let rota of filaGlobal) {
@@ -61,14 +67,10 @@ export function GaiolasProvider({ children }) {
 
         let podeEntrar = true;
         if (rota.num % 2 === 0) {
-          const anterior = gaiolas.find(
-            (x) => x.letter === rota.letter && x.num === rota.num - 1
-          );
+          const anterior = gaiolas.find((x) => x.letter === rota.letter && x.num === rota.num - 1);
           if (anterior && anterior.status === "em_conferencia") podeEntrar = false;
         } else {
-          const proximo = gaiolas.find(
-            (x) => x.letter === rota.letter && x.num === rota.num + 1
-          );
+          const proximo = gaiolas.find((x) => x.letter === rota.letter && x.num === rota.num + 1);
           if (proximo && proximo.status === "em_conferencia") podeEntrar = false;
         }
 
@@ -76,16 +78,16 @@ export function GaiolasProvider({ children }) {
 
         setGaiolas((prevG) =>
           prevG.map((g) =>
-            g.letter === rota.letter && g.num === rota.num
-              ? { ...g, status: "em_conferencia" }
-              : g
+            g.letter === rota.letter && g.num === rota.num ? { ...g, status: "em_conferencia" } : g
           )
         );
 
+        const bancada = novasBancadas[bancadaLivreIndex];
         novasBancadas[bancadaLivreIndex] = {
-          ...novasBancadas[bancadaLivreIndex],
+          ...bancada,
           status: "em_conferencia",
-          fila: [...novasBancadas[bancadaLivreIndex].fila, rota],
+          fila: [...bancada.fila, rota],
+          historico: bancada.historico || [],
         };
       }
 
@@ -93,38 +95,48 @@ export function GaiolasProvider({ children }) {
     });
   }, [gaiolas]);
 
+  // === ATUALIZAR STATUS ===
   const atualizarStatus = (bancadaId, index, novoStatus) => {
-    setBancadas((prevBancadas) =>
-      prevBancadas.map((b) => {
-        if (b.id === bancadaId && b.fila[index]) {
-          const rotaAtual = b.fila[index];
+  setUltimaSolicitacao(Date.now());
 
-          setGaiolas((prevG) =>
-            prevG.map((g) =>
-              g.letter === rotaAtual.letter && g.num === rotaAtual.num
-                ? { ...g, status: novoStatus }
-                : g
-            )
-          );
+  setBancadas((prevBancadas) =>
+    prevBancadas.map((b) => {
+      if (b.id === bancadaId && b.fila[index]) {
+        const rotaAtual = b.fila[index];
+        const novaFila = [...b.fila];
+        let novoHistorico = [...(b.historico || [])];
 
-          let novaFila = [...b.fila];
-          let novoStatusBancada = b.status;
+        // Remover da fila
+        novaFila.splice(index, 1);
 
-          if (novoStatus === "conferida" || novoStatus === "buffer") {
-            novaFila.splice(index, 1);
-            novoStatusBancada = novaFila.length > 0 ? "em_conferencia" : "livre";
-
-            // Processa fila imediatamente
-            processarFila();
-          }
-
-          return { ...b, fila: novaFila, status: novoStatusBancada };
+        // Adiciona ao histórico tanto conferida quanto buffer
+        if (novoStatus === "conferida" || novoStatus === "buffer") {
+          novoHistorico.push({ ...rotaAtual, status: novoStatus });
         }
-        return b;
-      })
-    );
-  };
 
+        // Atualiza status da bancada
+        const novoStatusBancada = novaFila.length > 0 ? "em_conferencia" : "livre";
+
+        // Atualiza status da gaiola global
+        setGaiolas((prevG) =>
+          prevG.map((g) =>
+            g.letter === rotaAtual.letter && g.num === rotaAtual.num
+              ? { ...g, status: novoStatus }
+              : g
+          )
+        );
+
+        processarFila();
+
+        return { ...b, fila: novaFila, status: novoStatusBancada, historico: novoHistorico };
+      }
+      return b;
+    })
+  );
+};
+
+
+  // === TOGGLE BANCADA ===
   const toggleBancada = (bancadaId) => {
     setBancadas((prev) =>
       prev.map((b) =>
@@ -135,7 +147,53 @@ export function GaiolasProvider({ children }) {
     );
   };
 
-  // Exemplo de useEffect sem warning
+  // === ATRIBUIR VIZINHA AUTOMATICAMENTE ===
+  const atribuirVizinhaAutomaticamente = useCallback(() => {
+    const gLocal = gaiolas.map((g) => ({ ...g }));
+    const bLocal = bancadas.map((b) => ({ ...b, fila: [...b.fila], historico: b.historico || [] }));
+
+    let houveMudanca = false;
+
+    for (let bi = 0; bi < bLocal.length; bi++) {
+      const bancada = bLocal[bi];
+      if (bancada.status !== "livre") continue;
+
+      const filaDisponivel = gLocal.find((g) => g.status === "pendente" || g.status === "em_fila");
+      if (!filaDisponivel) continue;
+
+      const gIdx = gLocal.indexOf(filaDisponivel);
+      gLocal[gIdx] = { ...filaDisponivel, status: "em_conferencia" };
+
+      bLocal[bi] = {
+        ...bancada,
+        fila: [...bancada.fila, filaDisponivel],
+        status: "em_conferencia",
+        historico: [...bancada.historico],
+      };
+
+      houveMudanca = true;
+    }
+
+    if (houveMudanca) {
+      setGaiolas(gLocal);
+      setBancadas(bLocal);
+      setUltimaSolicitacao(Date.now());
+    }
+  }, [gaiolas, bancadas]);
+
+  // === TIMER AUTOMÁTICO ===
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const diff = Date.now() - ultimaSolicitacao;
+      if (diff >= 60000) {
+        atribuirVizinhaAutomaticamente();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [ultimaSolicitacao, atribuirVizinhaAutomaticamente]);
+
+  // === AUTO-PROCESSAMENTO DE FILA ===
   useEffect(() => {
     processarFila();
   }, [processarFila]);
