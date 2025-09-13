@@ -9,6 +9,16 @@ function AdminPage() {
   const [numBancadas, setNumBancadas] = useState(16);
   const [rotasHora, setRotasHora] = useState(0);
 
+  const generateBancadas = () => {
+    if (!bancadas || bancadas.length === 0) {
+      const b = [];
+      for (let i = 1; i <= numBancadas; i++) {
+        b.push({ id: i, status: "livre", fila: [] });
+      }
+      setBancadas(b);
+    }
+  };
+
   const generateGaiolas = () => {
     const result = [];
     const startCode = startLetter.charCodeAt(0);
@@ -23,16 +33,8 @@ function AdminPage() {
     }
 
     setGaiolas(result);
-    setRotasHora(Math.ceil(result.length / (numBancadas * 3))); // 3h de operação
-    generateBancadas(); // cria ou atualiza as bancadas
-  };
-
-  const generateBancadas = () => {
-    const b = [];
-    for (let i = 1; i <= numBancadas; i++) {
-      b.push({ id: i, status: "livre", rotaAtual: null, fila: [] });
-    }
-    setBancadas(b);
+    setRotasHora(Math.ceil(result.length / (numBancadas * 3)));
+    generateBancadas();
   };
 
   const makeDuplasAlternadas = (arr) => {
@@ -46,7 +48,7 @@ function AdminPage() {
   };
 
   const getRuas = () => {
-    const letrasUnicas = [...new Set(gaiolas.map((g) => g.letter))];
+    const letrasUnicas = [...new Set(gaiolas?.map((g) => g.letter) || [])];
     const ruasDireita = [];
     const ruasEsquerda = [];
 
@@ -92,13 +94,18 @@ function AdminPage() {
                 justifyContent: "center",
                 alignItems: "center",
                 background:
-                  g.status === "pendente"
-                    ? "red"
-                    : g.status === "em_conferencia"
-                    ? "yellow"
-                    : g.status === "conferida"
-                    ? "green"
-                    : "blue",
+                g.subStatus === "buffer"
+                  ? "#0275d8"        // azul
+                  : g.subStatus === "expedida"
+                  ? "#5cb85c"        // verde
+                  : g.status === "pendente"
+                  ? "#d9534f"        // vermelho
+                  : g.status === "em_fila"
+                  ? "#ff7700ff"        // laranja
+                  : g.status === "em_conferencia"
+                  ? "#f0ad4e"        // amarelo
+                  : "#ccc",          // cinza default
+
                 color: "white",
                 borderRadius: "4px",
                 fontWeight: "bold",
@@ -116,7 +123,7 @@ function AdminPage() {
     <div key={rua.letra} style={{ marginBottom: "16px" }}>
       <h4>
         Rua {rua.letra} - Total:{" "}
-        {rua.duplas.linha1.length * 2 + rua.duplas.linha2.length * 2} gaiolas
+        {(rua.duplas.linha1.length + rua.duplas.linha2.length) * 2} gaiolas
       </h4>
       {renderLinhaDuplas(rua.duplas.linha1)}
       {renderLinhaDuplas(rua.duplas.linha2)}
@@ -151,7 +158,7 @@ function AdminPage() {
         </label>
 
         <label>
-          Máximo da última letra:
+          Último número da letra final:
           <input
             type="number"
             value={lastLimit}
@@ -175,41 +182,37 @@ function AdminPage() {
         </button>
       </div>
 
-      <h3>Total de gaiolas geral: {gaiolas.length}</h3>
+      <h3>Total de gaiolas: {gaiolas?.length || 0}</h3>
       <h3>Rotas por hora por bancada (3h de operação): {rotasHora || "-"}</h3>
 
-      <div style={{ display: "flex", gap: "50px", alignItems: "flex-end" }}>
+      <div style={{ display: "flex", gap: "50px", alignItems: "flex-start" }}>
         <div>
           <h3>Esquerda</h3>
-          {ruasEsquerda.map((rua) => renderRua(rua))}
+          {ruasEsquerda.map(renderRua)}
         </div>
 
         <div>
           <h3>Direita</h3>
-          {ruasDireita.map((rua) => renderRua(rua))}
+          {ruasDireita.map(renderRua)}
         </div>
       </div>
 
-          <div style={{ marginTop: "2rem" }}>
-          <h3>Status das Bancadas</h3>
-          {bancadas.map((b) => {
-            const rotaAtual = b.fila.length > 0 ? b.fila[0] : null;
-
-            return (
-              <div key={b.id} style={{ marginBottom: "8px" }}>
-                <strong>Bancada {b.id}</strong> - {b.status.replace("_", " ")}
-                <div>
-                  <strong>Rota atual:</strong>{" "}
-                  {rotaAtual ? `${rotaAtual.letter}-${rotaAtual.num}` : "-"}
-                </div>
+      <div style={{ marginTop: "2rem" }}>
+        <h3>Status das Bancadas</h3>
+        {bancadas?.map((b) => {
+          const rotaAtual = b.fila?.length > 0 ? b.fila[0] : null;
+          return (
+            <div key={b.id} style={{ marginBottom: "8px" }}>
+              <strong>Bancada {b.id}</strong> - {b.status.replace("_", " ")}
+              <div>
+                <strong>Rota atual:</strong>{" "}
+                {rotaAtual ? `${rotaAtual.letter}-${rotaAtual.num}` : "-"}
               </div>
-            );
-          })}
-        </div>
-
-
+            </div>
+          );
+        })}
+      </div>
     </div>
-    
   );
 }
 

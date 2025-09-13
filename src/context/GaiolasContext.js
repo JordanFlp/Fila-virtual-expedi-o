@@ -1,4 +1,4 @@
-import { createContext, useState, useCallback, useEffect } from "react";
+import { createContext, useState, useEffect, useCallback } from "react";
 
 export const GaiolasContext = createContext();
 
@@ -11,7 +11,7 @@ export function GaiolasProvider({ children }) {
   const gerarBancadas = (num) => {
     const novos = [];
     for (let i = 1; i <= num; i++) {
-      novos.push({ id: i, status: "livre", fila: [], historico: [] }); // inicializa historico
+      novos.push({ id: i, status: "livre", fila: [], historico: [] });
     }
     setBancadas(novos);
   };
@@ -34,8 +34,16 @@ export function GaiolasProvider({ children }) {
 
   // === SOLICITAR ROTA MANUAL ===
   const solicitarRota = (rota, bancadaId = null) => {
+    if (!rota) return;
     setUltimaSolicitacao(Date.now());
 
+    // ❌ Bloqueia se a rota estiver expedida
+    if (rota.status === "conferida" && rota.subStatus === "expedida") {
+      alert(`Rota ${rota.letter}-${rota.num} já foi expedida e não pode ser solicitada novamente.`);
+      return;
+    }
+
+    // Atualiza status global
     setGaiolas((prev) =>
       prev.map((g) =>
         g.letter === rota.letter && g.num === rota.num
@@ -44,96 +52,106 @@ export function GaiolasProvider({ children }) {
       )
     );
 
+    // Se tiver bancada disponível, atribui direto
     if (bancadaId) {
       setBancadas((prev) =>
         prev.map((b) =>
           b.id === bancadaId
-            ? { ...b, status: "em_conferencia", fila: [...b.fila, rota], historico: b.historico || [] }
+            ? {
+                ...b,
+                status: "em_conferencia",
+                fila: [...b.fila, { letter: rota.letter, num: rota.num }],
+              }
             : b
         )
       );
     }
   };
 
-  // === PROCESSAR FILA ===
-  const processarFila = useCallback(() => {
-    setBancadas((prevBancadas) => {
-      let novasBancadas = prevBancadas.map((b) => ({ ...b, fila: [...b.fila], historico: b.historico || [] }));
-      const filaGlobal = gaiolas.filter((g) => g.status === "em_fila");
+  const selecionarRotaManual = (rotaId, bancadaId) => {
+    setGaiolas((prevGaiolas) => {
+      const rota = prevGaiolas.find((g) => g.id === rotaId);
+      if (!rota) return prevGaiolas;
 
-      for (let rota of filaGlobal) {
-        const bancadaLivreIndex = novasBancadas.findIndex((b) => b.status === "livre");
-        if (bancadaLivreIndex === -1) break;
-
-        let podeEntrar = true;
-        if (rota.num % 2 === 0) {
-          const anterior = gaiolas.find((x) => x.letter === rota.letter && x.num === rota.num - 1);
-          if (anterior && anterior.status === "em_conferencia") podeEntrar = false;
-        } else {
-          const proximo = gaiolas.find((x) => x.letter === rota.letter && x.num === rota.num + 1);
-          if (proximo && proximo.status === "em_conferencia") podeEntrar = false;
-        }
-
-        if (!podeEntrar) continue;
-
-        setGaiolas((prevG) =>
-          prevG.map((g) =>
-            g.letter === rota.letter && g.num === rota.num ? { ...g, status: "em_conferencia" } : g
-          )
-        );
-
-        const bancada = novasBancadas[bancadaLivreIndex];
-        novasBancadas[bancadaLivreIndex] = {
-          ...bancada,
-          status: "em_conferencia",
-          fila: [...bancada.fila, rota],
-          historico: bancada.historico || [],
-        };
+      // Não pode selecionar rota que já está na fila
+      if (rota.status === "em_fila") {
+        alert("Não é possível selecionar uma rota que já está na fila.");
+        return prevGaiolas;
       }
 
-      return novasBancadas;
+      // Encontrar rota vizinha para verificar conflito
+      const vizinha = prevGaiolas.find((g) =>
+        g.letter === rota.letter &&
+        (g.num === rota.num - 1 || g.num === rota.num + 1) &&
+        g.status === "em_conferencia"
+      );
+
+      if (vizinha) {
+        alert("A rota vizinha está em conferência. Não é possível selecionar esta rota agora.");
+        return prevGaiolas;
+      }
+
+      // Validar se a bancada existe e está livre
+      const bancada = bancadas.find((b) => b.id === bancadaId);
+      if (!bancada) {
+        alert("Bancada inválida.");
+        return prevGaiolas;
+      }
+
+      if (bancada.status !== "livre") {
+        alert("A bancada selecionada não está livre.");
+        return prevGaiolas;
+      }
+
+      // Atualiza a bancada para em conferência
+      const novasBancadas = bancadas.map((b) =>
+        b.id === bancadaId
+          ? { ...b, status: "em_conferencia", fila: [rotaId] }
+          : b
+      );
+      setBancadas(novasBancadas);
+
+      // Atualiza status da rota
+      return prevGaiolas.map((g) =>
+        g.id === rotaId ? { ...g, status: "em_conferencia", bancadaId } : g
+      );
     });
-  }, [gaiolas]);
+  };
 
   // === ATUALIZAR STATUS ===
-  const atualizarStatus = (bancadaId, index, novoStatus) => {
+  const atualizarStatus = (bancadaId, index, novoStatus, subStatus = null) => {
   setUltimaSolicitacao(Date.now());
 
-  setBancadas((prevBancadas) =>
-    prevBancadas.map((b) => {
+  setBancadas(prev =>
+    prev.map(b => {
       if (b.id === bancadaId && b.fila[index]) {
         const rotaAtual = b.fila[index];
         const novaFila = [...b.fila];
-        let novoHistorico = [...(b.historico || [])];
-
-        // Remover da fila
         novaFila.splice(index, 1);
+        const novoHistorico = [...(b.historico || [])];
 
-        // Adiciona ao histórico tanto conferida quanto buffer
-        if (novoStatus === "conferida" || novoStatus === "buffer") {
-          novoHistorico.push({ ...rotaAtual, status: novoStatus });
+        if (novoStatus === "conferida") {
+          novoHistorico.push({ ...rotaAtual, status: novoStatus, subStatus });
         }
 
-        // Atualiza status da bancada
-        const novoStatusBancada = novaFila.length > 0 ? "em_conferencia" : "livre";
-
-        // Atualiza status da gaiola global
-        setGaiolas((prevG) =>
-          prevG.map((g) =>
+        // Atualiza status global
+        setGaiolas(prevG =>
+          prevG.map(g =>
             g.letter === rotaAtual.letter && g.num === rotaAtual.num
-              ? { ...g, status: novoStatus }
+              ? { ...g, status: novoStatus, subStatus } // <- aqui usamos o parâmetro
               : g
           )
         );
 
-        processarFila();
+        const novoStatusBancada = novaFila.length > 0 ? "em_conferencia" : "livre";
 
-        return { ...b, fila: novaFila, status: novoStatusBancada, historico: novoHistorico };
+        return { ...b, fila: novaFila, historico: novoHistorico, status: novoStatusBancada };
       }
       return b;
     })
   );
 };
+
 
 
   // === TOGGLE BANCADA ===
@@ -147,53 +165,123 @@ export function GaiolasProvider({ children }) {
     );
   };
 
-  // === ATRIBUIR VIZINHA AUTOMATICAMENTE ===
-  const atribuirVizinhaAutomaticamente = useCallback(() => {
-    const gLocal = gaiolas.map((g) => ({ ...g }));
-    const bLocal = bancadas.map((b) => ({ ...b, fila: [...b.fila], historico: b.historico || [] }));
+  // === ATRIBUIÇÃO AUTOMÁTICA RESPEITANDO VIZINHAS ===
+ const atribuirRotasAutomaticamente = useCallback(() => {
+  setBancadas((prevBancadas) => {
+    const novasBancadas = prevBancadas.map(b => ({
+      ...b,
+      fila: [...b.fila],
+      historico: [...(b.historico || [])],
+    }));
 
-    let houveMudanca = false;
+    // Faz uma cópia local do estado de gaiolas para checar vizinhas em tempo real
+    let gaiolasLocais = gaiolas.map(g => ({ ...g }));
 
-    for (let bi = 0; bi < bLocal.length; bi++) {
-      const bancada = bLocal[bi];
-      if (bancada.status !== "livre") continue;
+    // Pega apenas gaiolas pendentes ou em fila
+    const pendentes = gaiolasLocais.filter(g => g.status === "pendente" || g.status === "em_fila");
 
-      const filaDisponivel = gLocal.find((g) => g.status === "pendente" || g.status === "em_fila");
-      if (!filaDisponivel) continue;
+    for (let rota of pendentes) {
+      // encontra bancada livre
+      const bancadaLivreIndex = novasBancadas.findIndex(b => b.status === "livre");
+      if (bancadaLivreIndex === -1) break;
 
-      const gIdx = gLocal.indexOf(filaDisponivel);
-      gLocal[gIdx] = { ...filaDisponivel, status: "em_conferencia" };
+      // verifica vizinhas (-1 / +1)
+      const anterior = gaiolasLocais.find(g => g.letter === rota.letter && g.num === rota.num - 1);
+      const proximo = gaiolasLocais.find(g => g.letter === rota.letter && g.num === rota.num + 1);
+      if ((rota.num % 2 === 0 && anterior?.status === "em_conferencia") ||
+          (rota.num % 2 !== 0 && proximo?.status === "em_conferencia")) {
+        continue; // pula se vizinha em conferencia
+      }
 
-      bLocal[bi] = {
+      // dar preferência por vizinhas conferidas
+      const temVizinhaHistorico = novasBancadas.some(b =>
+        b.historico?.some(h => h.letter === rota.letter && (h.num === rota.num - 1 || h.num === rota.num + 1))
+      );
+
+      // Atualiza gaiola local
+      gaiolasLocais = gaiolasLocais.map(g =>
+        g.letter === rota.letter && g.num === rota.num
+          ? { ...g, status: "em_conferencia" }
+          : g
+      );
+
+      // Atualiza bancada
+      const bancada = novasBancadas[bancadaLivreIndex];
+      novasBancadas[bancadaLivreIndex] = {
         ...bancada,
-        fila: [...bancada.fila, filaDisponivel],
         status: "em_conferencia",
-        historico: [...bancada.historico],
+        fila: temVizinhaHistorico
+          ? [{ ...rota, status: "em_conferencia" }, ...bancada.fila]
+          : [...bancada.fila, { ...rota, status: "em_conferencia" }],
       };
-
-      houveMudanca = true;
     }
 
-    if (houveMudanca) {
-      setGaiolas(gLocal);
-      setBancadas(bLocal);
-      setUltimaSolicitacao(Date.now());
-    }
-  }, [gaiolas, bancadas]);
+    // Atualiza o estado global de gaiolas após a atribuição
+    setGaiolas(gaiolasLocais);
+
+    return novasBancadas;
+  });
+}, [gaiolas]);
+
+
+  // === PROCESSAR FILA AUTOMÁTICA ===
+  const processarFila = useCallback(() => {
+    setBancadas((prevBancadas) => {
+      const novasBancadas = prevBancadas.map((b) => ({ ...b, fila: [...b.fila], historico: [...(b.historico || [])] }));
+      const filaGlobal = gaiolas.filter((g) => g.status === "em_fila");
+
+      for (let rota of filaGlobal) {
+        const bancadaLivreIndex = novasBancadas.findIndex((b) => b.status === "livre");
+        if (bancadaLivreIndex === -1) break;
+
+        const anterior = gaiolas.find(g => g.letter === rota.letter && g.num === rota.num - 1);
+        const proximo = gaiolas.find(g => g.letter === rota.letter && g.num === rota.num + 1);
+        let podeEntrar = true;
+
+        if ((rota.num % 2 === 0 && anterior?.status === "em_conferencia") ||
+            (rota.num % 2 !== 0 && proximo?.status === "em_conferencia")) {
+          podeEntrar = false;
+        }
+
+        if (!podeEntrar) continue;
+
+        // Atualiza gaiola global
+        setGaiolas(prevG =>
+          prevG.map(g =>
+            g.letter === rota.letter && g.num === rota.num
+              ? { ...g, status: "em_conferencia" }
+              : g
+          )
+        );
+
+        // Atualiza bancada
+        const bancada = novasBancadas[bancadaLivreIndex];
+        novasBancadas[bancadaLivreIndex] = {
+          ...bancada,
+          status: "em_conferencia",
+          fila: [...bancada.fila, { ...rota, status: "em_conferencia" }],
+        };
+      }
+
+      return novasBancadas;
+    });
+  }, [gaiolas]);
 
   // === TIMER AUTOMÁTICO ===
   useEffect(() => {
     const interval = setInterval(() => {
-      const diff = Date.now() - ultimaSolicitacao;
-      if (diff >= 60000) {
-        atribuirVizinhaAutomaticamente();
-      }
+      if (Date.now() - ultimaSolicitacao >= 60000) processarFila();
     }, 10000);
-
     return () => clearInterval(interval);
-  }, [ultimaSolicitacao, atribuirVizinhaAutomaticamente]);
+  }, [ultimaSolicitacao, processarFila]);
 
-  // === AUTO-PROCESSAMENTO DE FILA ===
+  // Timer de atribuição automática para teste
+  useEffect(() => {
+    const interval = setInterval(() => atribuirRotasAutomaticamente(), 40000);
+    return () => clearInterval(interval);
+  }, [atribuirRotasAutomaticamente]);
+
+  // Auto-processamento inicial
   useEffect(() => {
     processarFila();
   }, [processarFila]);
@@ -208,9 +296,11 @@ export function GaiolasProvider({ children }) {
         gerarGaiolas,
         gerarBancadas,
         solicitarRota,
+        selecionarRotaManual,
         atualizarStatus,
         toggleBancada,
         processarFila,
+        atribuirRotasAutomaticamente,
       }}
     >
       {children}
