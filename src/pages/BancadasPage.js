@@ -50,12 +50,23 @@ function BancadasPage() {
       return;
     }
 
-    // Solicita a rota como no RotasPage, mas atribuindo diretamente à bancada
     solicitarRota(rota, bancadaSelecionada);
 
     setManualOpen(false);
     setBancadaSelecionada(null);
   };
+
+  // Rotas disponíveis para seleção manual (pendentes e sem vizinha ocupada)
+  const rotasDisponiveis = gaiolas.map((g) => {
+    const anterior = gaiolas.find((x) => x.letter === g.letter && x.num === g.num - 1);
+    const proximo = gaiolas.find((x) => x.letter === g.letter && x.num === g.num + 1);
+
+    const bloqueada = g.status !== "pendente" ||
+      (g.num % 2 === 0 && anterior?.status === "em_conferencia") ||
+      (g.num % 2 !== 0 && proximo?.status === "em_conferencia");
+
+    return { ...g, bloqueada };
+  });
 
   return (
     <div style={{ padding: "2rem" }}>
@@ -78,14 +89,12 @@ function BancadasPage() {
               {b.status === "desativada" ? "Ativar" : "Desativar"}
             </button>
 
-            {/* Botão de seleção manual */}
             {b.status === "livre" && (
               <button onClick={() => abrirManual(b)} style={{ marginBottom: "8px" }}>
                 Selecionar Rota Manual
               </button>
             )}
 
-            {/* Rotas Atuais */}
             {b.fila?.length === 0 ? (
               <p>Nenhuma rota atribuída</p>
             ) : (
@@ -150,7 +159,6 @@ function BancadasPage() {
               </div>
             )}
 
-            {/* Histórico de rotas conferidas */}
             {b.historico?.length > 0 && (
               <div style={{ marginTop: "12px" }}>
                 <h4>Histórico:</h4>
@@ -239,55 +247,59 @@ function BancadasPage() {
         >
           <div
             style={{
+              position: "relative",
               background: "#fff",
               padding: "20px",
               borderRadius: "8px",
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, 50px)",
+              display: "flex",
+              flexWrap: "wrap",
               gap: "8px",
-              justifyContent: "center",
-              maxWidth: "600px",
+              maxWidth: "500px",
+              maxHeight: "70vh",
+              overflowY: "auto",
             }}
           >
-            <h3 style={{ gridColumn: "1 / -1", textAlign: "center" }}>
-              Selecionar Rota Manual
-            </h3>
+            {/* Botão X no canto superior direito */}
+            <button
+              onClick={() => setManualOpen(false)}
+              style={{
+                position: "absolute",
+                top: "10px",
+                right: "10px",
+                background: "transparent",
+                border: "none",
+                fontSize: "20px",
+                cursor: "pointer",
+              }}
+            >
+              ×
+            </button>
 
-            {gaiolas.map((g) => {
-              const anterior = gaiolas.find(x => x.letter === g.letter && x.num === g.num - 1);
-              const proximo = gaiolas.find(x => x.letter === g.letter && x.num === g.num + 1);
-
-              const disponivel =
-                g.status === "pendente" &&
-                !((g.num % 2 === 0 && anterior?.status === "em_conferencia") ||
-                  (g.num % 2 !== 0 && proximo?.status === "em_conferencia"));
-
-              return (
-                <div
-                  key={g.letter + g.num}
-                  style={{
-                    width: "50px",
-                    height: "50px",
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    background: disponivel ? "#d9534f" : "#ccc",
-                    color: "white",
-                    borderRadius: "4px",
-                    fontWeight: "bold",
-                    cursor: disponivel ? "pointer" : "not-allowed",
-                  }}
-                  onClick={() => disponivel && selecionarManual(g)}
-                  title={disponivel ? `Selecionar rota ${g.letter}-${g.num}` : "Indisponível"}
-                >
-                  {g.letter}-{g.num}
-                </div>
-              );
-            })}
+            <h3 style={{ width: "100%" }}>Selecionar Rota Manual</h3>
+            {rotasDisponiveis.map((g) => (
+              <div
+                key={g.letter + g.num}
+                style={{
+                  width: "50px",
+                  height: "50px",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  background: g.bloqueada ? "#ccc" : "#d9534f",
+                  color: "white",
+                  borderRadius: "4px",
+                  fontWeight: "bold",
+                  cursor: g.bloqueada ? "not-allowed" : "pointer",
+                }}
+                onClick={() => !g.bloqueada && selecionarManual(g)}
+              >
+                {g.letter}-{g.num}
+              </div>
+            ))}
 
             <button
               onClick={() => setManualOpen(false)}
-              style={{ gridColumn: "1 / -1", marginTop: "12px", padding: "6px" }}
+              style={{ marginTop: "12px", width: "100%" }}
             >
               Cancelar
             </button>
